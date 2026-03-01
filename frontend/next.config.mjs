@@ -17,11 +17,10 @@ const nextConfig = {
         protocol: "http",
         hostname: "localhost",
       },
-      // TODO: Add your production Strapi domain after deploying backend
-      // {
-      //   protocol: "https",
-      //   hostname: "your-app.onrender.com",
-      // },
+      {
+        protocol: "https",
+        hostname: "algotaste.onrender.com",
+      },
     ],
   },
 };
