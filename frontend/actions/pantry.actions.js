@@ -2,7 +2,7 @@
 
 import { checkUser } from "@/lib/checkUser";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { freePantryScans, proTierLimit } from "@/lib/arcjet";
+import { freePantryScans, proTierLimit, safeProtect } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 
 const STRAPI_URL =
@@ -29,18 +29,17 @@ export async function scanPantryImage(formData) {
     // Create a request object for Arcjet
     const req = await request();
 
-    const decision = await arcjetClient.protect(req, {
-      userId: user.clerkId, // Use clerkId from checkUser
-      requested: 1, // Request 1 token from bucket
+    const decision = await safeProtect(arcjetClient, req, {
+      userId: user.clerkId,
+      requested: 1,
     });
 
     if (decision.isDenied()) {
       if (decision.reason.isRateLimit()) {
         throw new Error(
-          `Monthly scan limit reached. ${
-            isPro
-              ? "Please contact support if you need more scans."
-              : "Upgrade to Pro for unlimited scans!"
+          `Monthly scan limit reached. ${isPro
+            ? "Please contact support if you need more scans."
+            : "Upgrade to Pro for unlimited scans!"
           }`
         );
       }
