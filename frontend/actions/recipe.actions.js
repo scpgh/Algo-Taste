@@ -2,7 +2,7 @@
 
 import { checkUser } from "@/lib/checkUser";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { freeMealRecommendations, proTierLimit } from "@/lib/arcjet";
+import { freeMealRecommendations, proTierLimit, safeProtect } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -489,7 +489,7 @@ export async function getRecipesByPantryIngredients() {
     // Create a request object for Arcjet
     const req = await request();
 
-    const decision = await arcjetClient.protect(req, {
+    const decision = await safeProtect(arcjetClient, req, {
       userId: user.clerkId,
       requested: 1,
     });
@@ -497,8 +497,7 @@ export async function getRecipesByPantryIngredients() {
     if (decision.isDenied()) {
       if (decision.reason.isRateLimit()) {
         throw new Error(
-          `Monthly AI recipe limit reached. ${
-            isPro ? "Please contact support." : "Upgrade to Pro!"
+          `Monthly AI recipe limit reached. ${isPro ? "Please contact support." : "Upgrade to Pro!"
           }`
         );
       }
