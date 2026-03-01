@@ -3,7 +3,6 @@
 import { checkUser } from "@/lib/checkUser";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { freeMealRecommendations, proTierLimit, safeProtect } from "@/lib/arcjet";
-import { request } from "@arcjet/next";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const STRAPI_URL =
@@ -484,12 +483,9 @@ export async function getRecipesByPantryIngredients() {
 
     // ✅ ARCJET RATE LIMIT CHECK
     const isPro = user.subscriptionTier === "pro";
-    const arcjetClient = isPro ? proTierLimit : freeMealRecommendations;
+    const arcjetLimiter = isPro ? proTierLimit : freeMealRecommendations;
 
-    // Create a request object for Arcjet
-    const req = await request();
-
-    const decision = await safeProtect(arcjetClient, req, {
+    const decision = await safeProtect(arcjetLimiter, {
       userId: user.clerkId,
       requested: 1,
     });
