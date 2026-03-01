@@ -1,35 +1,51 @@
 import arcjet, { shield, tokenBucket, detectBot } from "@arcjet/next";
 
-// Base Arcjet instance with global protections
-export const aj = arcjet({
-  key: process.env.ARCJET_KEY,
-  rules: [
-    // Shield WAF - protect against common attacks
-    shield({
-      mode: "LIVE", // Use "DRY_RUN" during development to test
-    }),
+const ARCJET_KEY = process.env.ARCJET_KEY;
 
-    // Bot protection - allow search engines only
-    detectBot({
-      mode: "LIVE",
-      allow: ["CATEGORY:SEARCH_ENGINE"],
-    }),
-  ],
-});
+// Only initialize Arcjet if the key is available
+let aj = null;
+
+if (ARCJET_KEY) {
+  try {
+    aj = arcjet({
+      key: ARCJET_KEY,
+      rules: [
+        shield({ mode: "LIVE" }),
+        detectBot({
+          mode: "LIVE",
+          allow: ["CATEGORY:SEARCH_ENGINE"],
+        }),
+      ],
+    });
+  } catch {
+    console.warn("Arcjet initialization failed, rate limiting disabled");
+    aj = null;
+  }
+}
+
+// Helper: create rate-limited client or return null
+function withRuleSafe(rule) {
+  if (!aj) return null;
+  try {
+    return aj.withRule(rule);
+  } catch {
+    return null;
+  }
+}
 
 // Free tier pantry scan limits (10 scans per month)
-export const freePantryScans = aj.withRule(
+export const freePantryScans = withRuleSafe(
   tokenBucket({
     mode: "LIVE",
-    characteristics: ["userId"], // Track by Clerk user ID
-    refillRate: 10, // 10 tokens
-    interval: "30d", // per month (30 days)
-    capacity: 10, // max 10 tokens
+    characteristics: ["userId"],
+    refillRate: 10,
+    interval: "30d",
+    capacity: 10,
   })
 );
 
 // Free tier meal recommendations (5 per month)
-export const freeMealRecommendations = aj.withRule(
+export const freeMealRecommendations = withRuleSafe(
   tokenBucket({
     mode: "LIVE",
     characteristics: ["userId"],
@@ -39,9 +55,8 @@ export const freeMealRecommendations = aj.withRule(
   })
 );
 
-// Pro tier - effectively unlimited (very high limits)
-// 1000 requests per day should be more than enough for any user
-export const proTierLimit = aj.withRule(
+// Pro tier - effectively unlimited
+export const proTierLimit = withRuleSafe(
   tokenBucket({
     mode: "LIVE",
     characteristics: ["userId"],
@@ -50,3 +65,16 @@ export const proTierLimit = aj.withRule(
     capacity: 1000,
   })
 );
+
+// Safe protect helper — skips rate limiting if Arcjet isn't available
+export async function safeProtect(client, req, options) {
+  if (!client) {
+    return { isDenied: () => false, reason: "arcjet_disabled" };
+  }
+  try {
+    return await client.protect(req, options);
+  } catch (error) {
+    console.warn("Arcjet protect failed:", error.message);
+    return { isDenied: () => false, reason: "arcjet_error" };
+  }
+}
