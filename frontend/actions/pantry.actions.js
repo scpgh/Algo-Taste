@@ -3,7 +3,6 @@
 import { checkUser } from "@/lib/checkUser";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { freePantryScans, proTierLimit, safeProtect } from "@/lib/arcjet";
-import { request } from "@arcjet/next";
 
 const STRAPI_URL =
   process.env.NEXT_PUBLIC_STRAPI_URL || "http://localhost:1337";
@@ -24,12 +23,9 @@ export async function scanPantryImage(formData) {
     const isPro = user.subscriptionTier === "pro";
 
     // Apply Arcjet rate limit based on tier
-    const arcjetClient = isPro ? proTierLimit : freePantryScans;
+    const arcjetLimiter = isPro ? proTierLimit : freePantryScans;
 
-    // Create a request object for Arcjet
-    const req = await request();
-
-    const decision = await safeProtect(arcjetClient, req, {
+    const decision = await safeProtect(arcjetLimiter, {
       userId: user.clerkId,
       requested: 1,
     });
