@@ -1,14 +1,25 @@
-import arcjet, { shield, tokenBucket, detectBot } from "@arcjet/next";
-
-const ARCJET_KEY = process.env.ARCJET_KEY;
-
-// Only initialize Arcjet if the key is available
+// Safe Arcjet wrapper — gracefully degrades on Vercel or when Arcjet is unavailable
 let aj = null;
+let requestFn = null;
 
-if (ARCJET_KEY) {
+// Dynamically import Arcjet to prevent module-level crashes
+async function initArcjet() {
+  if (aj !== null || aj === false) return; // already attempted
   try {
+    const arcjetModule = await import("@arcjet/next");
+    const arcjet = arcjetModule.default;
+    const { shield, tokenBucket, detectBot, request } = arcjetModule;
+
+    requestFn = request;
+
+    const key = process.env.ARCJET_KEY;
+    if (!key) {
+      aj = false;
+      return;
+    }
+
     aj = arcjet({
-      key: ARCJET_KEY,
+      key,
       rules: [
         shield({ mode: "LIVE" }),
         detectBot({
@@ -18,23 +29,33 @@ if (ARCJET_KEY) {
       ],
     });
   } catch {
-    console.warn("Arcjet initialization failed, rate limiting disabled");
-    aj = null;
+    console.warn("Arcjet not available, rate limiting disabled");
+    aj = false;
   }
 }
 
-// Helper: create rate-limited client or return null
-function withRuleSafe(rule) {
-  if (!aj) return null;
-  try {
-    return aj.withRule(rule);
-  } catch {
-    return null;
-  }
+// Create rate-limited clients lazily
+function createRateLimiter(ruleFactory) {
+  let client = null;
+  return {
+    async getClient() {
+      await initArcjet();
+      if (!aj) return null;
+      if (!client) {
+        try {
+          const { tokenBucket } = await import("@arcjet/next");
+          client = aj.withRule(ruleFactory(tokenBucket));
+        } catch {
+          client = null;
+        }
+      }
+      return client;
+    },
+  };
 }
 
 // Free tier pantry scan limits (10 scans per month)
-export const freePantryScans = withRuleSafe(
+export const freePantryScans = createRateLimiter((tokenBucket) =>
   tokenBucket({
     mode: "LIVE",
     characteristics: ["userId"],
@@ -45,7 +66,7 @@ export const freePantryScans = withRuleSafe(
 );
 
 // Free tier meal recommendations (5 per month)
-export const freeMealRecommendations = withRuleSafe(
+export const freeMealRecommendations = createRateLimiter((tokenBucket) =>
   tokenBucket({
     mode: "LIVE",
     characteristics: ["userId"],
@@ -56,7 +77,7 @@ export const freeMealRecommendations = withRuleSafe(
 );
 
 // Pro tier - effectively unlimited
-export const proTierLimit = withRuleSafe(
+export const proTierLimit = createRateLimiter((tokenBucket) =>
   tokenBucket({
     mode: "LIVE",
     characteristics: ["userId"],
@@ -66,15 +87,21 @@ export const proTierLimit = withRuleSafe(
   })
 );
 
-// Safe protect helper — skips rate limiting if Arcjet isn't available
-export async function safeProtect(client, req, options) {
-  if (!client) {
-    return { isDenied: () => false, reason: "arcjet_disabled" };
-  }
+// Safe protect — call this from server actions
+export async function safeProtect(limiter, options) {
   try {
+    const client = await limiter.getClient();
+    if (!client) {
+      return { isDenied: () => false, reason: { isRateLimit: () => false } };
+    }
+    await initArcjet();
+    const req = requestFn ? await requestFn() : null;
+    if (!req) {
+      return { isDenied: () => false, reason: { isRateLimit: () => false } };
+    }
     return await client.protect(req, options);
   } catch (error) {
     console.warn("Arcjet protect failed:", error.message);
-    return { isDenied: () => false, reason: "arcjet_error" };
+    return { isDenied: () => false, reason: { isRateLimit: () => false } };
   }
 }
