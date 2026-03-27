@@ -434,8 +434,6 @@ This project is built for educational and portfolio purposes.
 
 <div align="center">
 
-**Built with ❤️ and AI**
-
 *AlgoTaste — Crafted with Precision*
 
 </div>
